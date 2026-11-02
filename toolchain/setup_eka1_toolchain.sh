@@ -3,9 +3,9 @@
 # ssladaptor.dll for the Nokia 9300: GnuPoc + Symbian GCC 2.9-psion-98r2 + S60 2nd Ed. FP1 SDK.
 #
 # usage:  ./setup_eka1_toolchain.sh <dir with the two archives> [install dir, default ~/sym]
-#   <dir> must contain gcc-539-2aeh-source.tar.bz2 (in this repo: symbian-s80-build-tools/) and
+#   <dir> must contain gcc-539-2aeh-source.tar.bz2 (this repo's root) and
 #   S60_SDK_2_1_NET.zip, or the split 7z (S60_SDK_2_1_NET_2.7z.001 ... .012) from the private
-#   repo janseris/s60-sdk-2.1 cloned in the main repo's root (or as <dir>/s60-sdk-2.1; see BUILD_SYMBIAN_TLS.md).
+#   repo janseris/s60-sdk-2.1 cloned next to this repo (or as <dir>/s60-sdk-2.1; see BUILD_SYMBIAN_TLS.md).
 # Needs: build-essential flex bison libncurses-dev zlib1g-dev cabextract perl git p7zip-full
 # Tested on Ubuntu 24.04 (gcc 13, perl 5.38), 2026-10.
 #

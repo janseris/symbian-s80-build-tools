@@ -5,6 +5,9 @@ The DLL is built from [janseris/symbian-tls](https://github.com/janseris/symbian
 (branch `eka1-fixes`). The full step-by-step guide is in the fork:
 `symbian-tls/BUILD_LINUX_EKA1.md`. This page is the short version.
 
+Clone this repo, `s60-sdk-2.1`, `symbian-tls` and `bearssl` side by side in one folder and run the
+commands below from that folder.
+
 It builds on **Linux** (WSL on Windows works) with GnuPoc. The original Windows SDK
 toolchain (Metrowerks/ActivePerl 5.6) isn't needed.
 
@@ -12,7 +15,7 @@ toolchain (Metrowerks/ActivePerl 5.6) isn't needed.
 
 | File | Where |
 |---|---|
-| `gcc-539-2aeh-source.tar.bz2` (Symbian GCC 2.9-psion-98r2) | in this repo, `symbian-s80-build-tools/` |
+| `gcc-539-2aeh-source.tar.bz2` (Symbian GCC 2.9-psion-98r2) | in this repo's root |
 | `S60_SDK_2_1_NET.zip` (S60 2nd Edition FP1 SDK, Symbian 7.0s, 116 MB) | not in this repo: it is Nokia's proprietary software. It is kept as a split 7z (12 parts of 10 MB, because GitHub refuses files over 100 MB) in the **private** repo `janseris/s60-sdk-2.1`. Clone it into the repo's root (`git clone https://github.com/janseris/s60-sdk-2.1`); the setup script extracts it. By hand: `7z x S60_SDK_2_1_NET_2.7z.001` (7-Zip on Windows: open the `.001`). SHA-256 of the zip: `1e535703c11402b70e6c37d32b41047e63a44ec65a744f5012d1c012ccf0cf85`. Original source: [Symbian Archive](https://mrrosset.github.io/Symbian-Archive/SDKs-Series.html) |
 | GnuPoc scripts | `git clone https://github.com/mstorsjo/gnupoc-package` |
 | packages | `build-essential flex bison libncurses-dev zlib1g-dev cabextract perl p7zip-full` |
@@ -25,7 +28,7 @@ toolchain (Metrowerks/ActivePerl 5.6) isn't needed.
 - `sdk-perl-fixes.patch`
 - the `collect2.c` fix for GCC
 
-GnuPoc is pinned to commit `d3ddaf5`. Tested on 2026-10-04 on Ubuntu 24.04, starting from nothing. With it, the tag `v20-fix10` builds a DLL of the same size as `symbian-s80-build-tools/out/ssladaptor_v20-fix10.dll`; only 5 bytes differ (timestamp and checksum).
+GnuPoc is pinned to commit `d3ddaf5`. Tested on 2026-10-04 on Ubuntu 24.04, starting from nothing. With it, the tag `v20-fix10` builds a DLL of the same size as `out/ssladaptor_v20-fix10.dll`; only 5 bytes differ (timestamp and checksum).
 
 ```sh
 # symbian-s80-build-tools/ has gcc-539-2aeh-source.tar.bz2; the SDK is cloned in the root as s60-sdk-2.1
@@ -59,5 +62,18 @@ On Windows, run it in WSL. Building GCC takes ~2 minutes.
 EKA1 DLLs must not have writable static data: petran stops with "Dll has initialised data".
 Keep tables `const` and avoid `static` arrays of pointers.
 
-Copy finished DLLs to `symbian-s80-build-tools/out/` as `ssladaptor_v20-fixN.dll` / `ssladaptor_v20-fixN_log.dll` (our Nth fix build on shinovon's v20)
+Copy finished DLLs to this repo's `out/` as `ssladaptor_v20-fixN.dll` / `ssladaptor_v20-fixN_log.dll` (our Nth fix build on shinovon's v20)
 and commit them here. Commit the sources to the forks.
+
+## The DLLs and installing them
+
+- `out/`: prebuilt `ssladaptor_v20-fixN.dll` (no log) and `ssladaptor_v20-fixN_log.dll`
+  (logs to `C:\Logs\SSL\SSLLog.txt` when that folder exists), fix1 to fix12 (the highest is the newest), plus the source patches.
+  **Naming:** `v20-fixN` is our Nth fix build on top of shinovon's release **v20**. shinovon's own
+  releases are v2 to v20, so the bare "v10" of our builds would be confused with his v10.
+  v20-fix10 was tested with the pubtran-j2me app 1.1 and 1.2 (its README, section *Working configuration*).
+- `tlsprobe/` (in Czech-Public-Transport-Symbian-App): a desktop BearSSL probe that behaves like the patch (optional SNI).
+
+On the phone: copy `ssladaptor_v20-fix10.dll` (or `pubtran-j2me/phone/ssladaptor.dll`) to the phone as
+`C:\System\Libs\ssladaptor.dll` and restart the phone. For logging use `ssladaptor_v20-fix10_log.dll`
+instead and create `C:\Logs\SSL\`.

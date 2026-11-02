@@ -1,4 +1,8 @@
-# Jízdní řády on the Nokia 9300 (J2ME)
+# J2ME on the Nokia 9300 (archived)
+
+Kept for reference: the 9300 work moved to native Symbian C++ apps, so this isn't maintained.
+What's here: where the J2ME public transport app (`pubtran-j2me`) and its pieces live, how a J2ME
+app gets onto the phone, and why signed MIDlets can't be used on Series 80 v2.
 
 The Nokia 9300 / 9500 Communicator runs **Series 80 v2** on **Symbian 7.0s (EKA1)**.
 It is not S60: the S60v2-era notes below apply only where stated, and patches for
@@ -10,37 +14,26 @@ The work is split into separate repositories, cloned side by side in `phoneapk/`
 
 | Folder | Repository | What it is |
 |---|---|---|
-| `.` (this repo) | `janseris/Czech-Public-Transport-Symbian-App` | The decompiled/patched Android app and API capture, the C# client (`PubtranClient/`), build tools, prebuilt TLS DLLs and these guides |
-| `pubtran-j2me/` | `janseris/pubtran-j2me` (fork of [gtrxac/discord-j2me](https://github.com/gtrxac/discord-j2me)) | The J2ME app for the phone |
+| `symbian-s80-build-tools/` (this repo; this page is its `j2me/`) | `janseris/symbian-s80-build-tools` | Build tools, prebuilt TLS DLLs, native-app notes |
+| `.` | `janseris/Czech-Public-Transport-Symbian-App` | The Jízdní řády Android app's decompiled/patched copy and API capture, the C# client (`PubtranClient/`), `tlsprobe/` |
+| `pubtran-j2me/` | `janseris/pubtran-j2me` (fork of [gtrxac/discord-j2me](https://github.com/gtrxac/discord-j2me)) | The J2ME public transport app for the phone (the first user of the TLS patch) |
 | `symbian-tls/` | [janseris/symbian-tls](https://github.com/janseris/symbian-tls), branch `eka1-java-fixes` (fork of shinovon/symbian-tls) | The TLS 1.2 patch (`SSLADAPTOR.dll`) with the EKA1/Java fixes |
 | `bearssl/` | [janseris/bearssl-symbian](https://github.com/janseris/bearssl-symbian), branch `eka1-fixes` | BearSSL for the patch |
 
-Clone them after this one:
+Clone them into one folder:
 
 ```
+git clone https://github.com/janseris/symbian-s80-build-tools.git
 git clone https://github.com/janseris/pubtran-j2me.git
 git clone -b eka1-java-fixes https://github.com/janseris/symbian-tls.git symbian-tls
 git clone -b eka1-fixes https://github.com/janseris/bearssl-symbian.git bearssl
 ```
 
-In this repo:
+## Installing a J2ME app
 
-- `symbian-s80-build-tools/out/`: prebuilt `ssladaptor_v20-fixN.dll` (no log) and `ssladaptor_v20-fixN_log.dll`
-  (logs to `C:\Logs\SSL\SSLLog.txt` when that folder exists), fix1 to fix10, plus the source patches.
-  **Naming:** `v20-fixN` is our Nth fix build on top of shinovon's release **v20**. shinovon's own
-  releases are v2 to v20, so the bare "v10" of our builds would be confused with his v10.
-  **v20-fix10 is the current one**, tested with app 1.1 and 1.2. The working combination and the fork's
-  changes are described in the pubtran-j2me README, section *Working configuration*.
-- `symbian-s80-build-tools/gcc-539-2aeh-source.tar.bz2`: source of the Symbian GCC 2.9 compiler.
-- `tlsprobe/`: a desktop BearSSL probe that behaves like the patch (optional SNI).
-- Build guide for the DLL: [BUILD_SYMBIAN_TLS.md](BUILD_SYMBIAN_TLS.md).
-
-## Installing on the phone
-
-1. **TLS patch.** Copy `ssladaptor_v20-fix10.dll` (or `pubtran-j2me/phone/ssladaptor.dll`) to the phone as
-   `C:\System\Libs\ssladaptor.dll` and restart the phone. For logging use `ssladaptor_v20-fix10_log.dll`
-   instead and create `C:\Logs\SSL\`.
-2. **The app.** In `android-to-j2me-kit/nokia9300/ota/` (the one over-the-air server for all the apps; copy `pubtran-j2me/bin/pubtran_s80.jar` + `.jad` there) run `start_ota_server.bat` (port 8000). In the phone's
+1. The TLS patch first (`https://` from Java goes through it): see
+   [BUILD_SYMBIAN_TLS.md](../BUILD_SYMBIAN_TLS.md#the-dlls-and-installing-them).
+2. **The app** (here pubtran-j2me). In `android-to-j2me-kit/nokia9300/ota/` (the one over-the-air server for all the apps; copy `pubtran-j2me/bin/pubtran_s80.jar` + `.jad` there) run `start_ota_server.bat` (port 8000). In the phone's
    browser open `http://<PC address>:8000/` (USB networking: `http://192.168.137.1:8000/`)
    and download the **`.jar` directly**. Opening the `.jad` makes the phone reject the suite
    before it downloads the jar. The server also serves `ssladaptor.dll` / `ssladaptor_log.dll`

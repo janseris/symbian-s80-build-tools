@@ -1,0 +1,6 @@
+*.bundle
+__pycache__/
+# Nokia's SDKs stay in their private repos (s60-sdk-2.1, s80_DP_2_0_SDK)
+S60_SDK_2_1_NET.zip
+S60_SDK_2_1_NET_2.7z.*
+S80_DP_2_0_SDK.zip
