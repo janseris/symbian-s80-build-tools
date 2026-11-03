@@ -24,9 +24,9 @@ API and formats, the 3D tiles, places) stays in `maps9300/` (`docs/mapy-api.md`,
 | Other emulator tests | `mp4player9300/tools/armemu/` (the video decoders: `run.py decode|profile|colour|h264`), `webbrowser9300/browser9300/test/armtest.sh` (the browser's `igarm.c`), `lib/fastmem/test/` |
 | `emu/examples/` | Maps 9300's drivers and scripts: renderer scenes asm vs C (`drv.cpp`, `emu75.py`), whole 3D frames from scene dumps (`drvvts.cpp`, `emuvts.py`), the JPEG decoder (`drvdec.cpp`, `emudec.py`, `emujpg.py`), profiles (`prof*.py`); PC tests (`chunkcmp.cpp`, `panocull.cpp`, `panoseam.cpp`, `jpegtest.cpp`, `mapypoitest.cpp`) |
 | `lib/fastmem/` | memcpy / memset / strlen / 16- and 32-bit fills in ARM assembly (32 bytes a step), the C reference, its own README and emulator test (`test/armtest.sh`); the other `lib/` files include `fastmem.h` (add `-I.../lib/fastmem`). Copies: `webbrowser9300/fastmem/` (the browser builds from it) |
-| `lib/jpegdec.*`, `jpegasm.*` | Baseline JPEG to RGB565, full or half size; IDCTs, colour, the usual block's Huffman in assembly (section 6b) |
+| `lib/jpegdec.*`, `jpegasm.*` | Baseline JPEG to RGB565, full or half size; IDCTs, colour, the usual block's Huffman in assembly (`symbian-s80v2-dev-tips-and-tricks/performance.md`) |
 | `lib/pngdec.*` | PNG (zlib) to RGB565 |
-| `lib/r3d.*`, `r3dgeo.*`, `r3dspan.*` | The 3D renderer: fixed point, bucket-sorted, affine / perspective textures, meshes with shared corners, chunk culling; the hot loops in assembly (sections 4, 4b, 6) |
+| `lib/r3d.*`, `r3dgeo.*`, `r3dspan.*` | The 3D renderer: fixed point, bucket-sorted, affine / perspective textures, meshes with shared corners, chunk culling; the hot loops in assembly (section 4; the cache and the speed-ups: `symbian-s80v2-dev-tips-and-tricks/performance.md`) |
 | `lib/rotate.*` | 16-bit pixel quarter turns (portrait screens, a turned map) |
 | `lib/json.*` | A small JSON reader (no C library) |
 | `lib/wait.h` | Blocking waits for worker threads with a nested active scheduler (from Net Helper 9300) |
@@ -178,21 +178,6 @@ Rules that matter on this target:
   misses there (1.13), but C code reading it gets slower (GCC 2.9's byte loads): keep such data for the
   assembly loops.
 
-## 4b. The data cache (8 KB, 16-byte lines)
-
-Instruction counts miss the memory stalls. Maps 9300's emulator models the cache (`emuvts.py -c`):
-read misses per function. What helped (1.13, about -35 % misses per frame, the same frames):
-- **Smaller per-element data**: the projected corners 8 bytes instead of 16 (a tile's ~700 fit in the
-  cache), the mesh's corners 16-bit.
-- **Lay structs out by what is read together**: the fields every pass reads (count, flags, pointer,
-  next) in the first 16 bytes, arrays starting on a 16-byte boundary (allocate 15 bytes more and round
-  the pointer up), so a triangle's 3 values of an array are one line, not two.
-- **Share instead of copying**: polygons pointing at one texture descriptor rather than each a copy.
-- **Don't touch it**: a box-against-the-view test per tile (8 corners) skipped ~15-25 % of the
-  geometry work outright.
-- Writes don't fill the cache (read-allocate), so data written in one pass and read in the next misses
-  again.
-
 ## 5. Measuring: the ARM emulator test
 
 You can't profile on the phone, and the PC's compiler tells you nothing about GCC 2.9's code. So
@@ -230,88 +215,6 @@ More in Maps 9300's `test/arm` (1.13):
 Instruction counts aren't time: cache misses and the 9300's slow memory add a lot. Use them to
 compare versions, then confirm on the phone (Maps 9300 logs per-frame milliseconds).
 
-## 6. What actually made the 3D view faster
-
-In order of gain, measured in the emulator:
-
-1. **Don't do the work at all.** Skip tiles outside the view before touching them; drop faces
-   behind or beside the camera before transforming them; no background fill where the scene
-   covers the screen; a polygon budget, submitted near to far so the far ones are what's lost.
-2. **Transform shared vertices once (0.92).** A mesh's corner is shared by ~4 triangles.
-   Transforming and projecting per triangle did it 3 times per triangle; per vertex per tile is
-   ~4x less. Triangles then only look up screen positions. Result: 40–55% fewer instructions
-   for the whole frame, the same picture to the pixel.
-3. **Sort out triangles in assembly** (back face, off-screen, skipped squares) before building
-   any polygon: ~45 instructions a triangle instead of ~140.
-4. **The span loop and row loop in assembly** (0.75): ~7 instructions a pixel, 4 pixels a step.
-5. **Per-polygon setup in assembly** (the texture gradients, 0.92): ~60 instructions instead of
-   ~190. With small triangles (~45 pixels each) the setup costs as much as the pixels.
-6. **Fixed point everywhere**, angles as table lookups (`R3D::Sin`), reciprocals from a table.
-
-Maps 9300 1.12–1.13 (the same frames to the bit; a test frame 5.41 M → 4.78 M instructions, ~35 %
-fewer cache misses):
-
-7. **An exact box test per tile** (`R3D::BoxVisible`): the 8 corners of the tile's box in camera
-   space against the near plane and the 4 sides (a few pixels wider). The old 2D wedge kept ~1/3
-   more tiles than the screen shows. Cheapest win of all: 9–23 % of a frame.
-8. **The data cache** (section 4b): smaller corners, cache-line-aware struct layout, shared texture
-   descriptors.
-9. **The bucket loop and a polygon's whole drawing in assembly** (`r3_draw`, `r3_raster_tex`):
-   C's per-call glue (struct packing, prologues) cost ~70 instructions a polygon.
-10. **Remove tests that can't change the result**: the row loop skipped rows with left > right,
-    but then ceil(left) > floor(right) anyway, and the later count < 0 test catches it. Prove it
-    before removing it (the clamps keep it true), then check it on the frames.
-
-And outside the frame, **the mesh decoder without floating point** (1.13): a fixed-point transform
-built once a submesh (rotation and scale together; the 64-bit sums `(long long) int * int`, one
-`SMULL` each), an integer square root for the shading, integer division for the texture
-coordinates, shifts for power-of-two cells. On the phone it went from ~168 ms to ~37 ms a tile.
-The results differ from the doubles only where a value was within ~1/512 of a rounding edge
-(2 corners of 60,000 moved 1/16 m), so it was checked by comparing meshes, not by hashes.
-
-Maps 9300 1.17 (the same frames; 6–14 % fewer instructions):
-
-11. **Chunks inside a mesh without reordering it.** The triangles came in no spatial order (any run
-    of 64 spanned the whole tile), and reordering them would change the draw order inside the depth
-    buckets (not the same frames). Instead each face gets a grid chunk (a byte); the chunks' boxes
-    are culled a frame and the face loop skips a hidden chunk's faces with one table lookup. The
-    corners can be reordered freely (only the indices change): by their first face's chunk, the
-    corners a set of visible chunks needs are a few runs, which r3_verts takes as they are.
-12. **Box against plane with the "p-vertex"** (n·c + |n|·h), unit normals in world space worked out
-    once a frame: ~30 multiplies a box, no 64-bit maths. Hierarchical (tile, 4 x 4, 8 x 8), each box
-    against only the planes its parent straddles: the plain 64-chunk test cost nearly what it saved.
-13. **A wide screen culls a lot at its sides**: in a street-level scene 36–68 % of the projected
-    triangles were wholly off one side.
-14. **Special cases without flag tests**: a clamp-free row loop for triangles wholly inside, chosen
-    with three unsigned compares (`cmp; cmpls; cmpls; bhi`: below 0 counts as huge); loop copies
-    with GAS `.macro` / `.if` instead of a test each time round. Prove the clamp can go: the rows'
-    ends stay within 1/8 px of the corners (floor rounding of 16.16 steps, under 8192 rows).
-
-The panorama (Maps 9300 1.16) shares the renderer, so 3–6 and 8–10 were already its own. Of the
-rest only 7 carried over: its sphere's pieces were picked by a cone around the view, which on a
-640 x 200 screen is round and ~3x too tall; testing the pieces' corners against the 4 sides
-(each corner once, cached a frame) halved the pieces (87 → 41) for the same frame. A rule that
-follows: **a round test on a wide screen wastes half its area; test the real sides.** After
-that ~80 % of the frame is the 4-pixel span loop, which only packing u and v in one register
-(one add instead of two a pixel, ~11 % of the frame, but 16-bit halves: not the same pixels)
-would still shorten.
-
-## 6b. JPEG decoding (the 3D photos, the panorama)
-
-- **Decode at the size you need**: a half-size IDCT (4x4 from the lowest frequencies of each 8x8
-  block) instead of decoding fully and halving: 45 % of the instructions (1.11).
-- **IDCTs and colour conversion in assembly**, with the C kept as the reference (1.12).
-- **Huffman decoding of the usual block in assembly** (`jpeg_block`, 1.13): DC, AC, end of block,
-  stuffed `FF 00` bytes, all from 9-bit lookup tables; anything else (a longer code, a marker, the
-  end of the data) returns "not done" **before changing any state**, and the C decodes that block
-  from the start. Fast paths that can bail out to the full C code are simple to get right.
-- **Combined tables**: the AC table gives the run, the value bits and the code length in one
-  lookup when they fit 9 bits (most do); the zigzag table carries the row bit (`z | 1 << (8 + row)`)
-  so tracking non-zero rows is one `ORR`.
-- **Move table bases, not indices**: per pixel pair, add the chroma terms to the three
-  table pointers once (`r565 + crR`, ...), then each pixel is `ldr [base, y, lsl #2]` x 3:
-  30 instructions a pair instead of 34.
-
 ## 7. Working method that saved phone installs
 
 - Test everything you can on the PC first (the renderer, decoders and parsers are portable C++
@@ -338,106 +241,10 @@ configure | make (repeat until rc=0) | install | tools | s60 | s80`:
 - `make` is restartable: run it again until it finishes.
 Then the app builds in ~10 s, to the same machine code as elsewhere.
 
-## 9. From the other native apps
+## Moved: findings and development tips
 
-Found in MP4 Player 9300 (`mp4player9300/README.md`), Browser 9300 (`webbrowser9300/browser9300/README.md`),
-Instagram 9300 (`instagram9300/README.md`), Net Helper 9300 (`nethelper9300/README.md`) and GnuBox
-(`gnubox-s80/notes/`); the version that found it in brackets.
-
-**Speed**
-- **Build with `-O2`** (`OPTION GCC -O2` in the `.mmp`): the SDK's default is `-O`; MP4 Player's
-  decoding went 19 % faster (MP4 1.2/1.4).
-- **The emulator's instructions on the phone:** ~14-20 ns each (2.1-2.9 cycles at 150 MHz) for decoding
-  that mostly hits the cache (MP4 1.7: 2.04 M instructions = 28.9 ms; 1.11: ~19 ns). Much more than
-  that means memory traffic (MP4 1.20).
-- **GCC 2.9's `short`s:** no 16-bit loads or stores in its output (each access becomes byte
-  operations); use `int` for working arrays (MP4's coefficient blocks and IDCT, 1.7). Constant
-  multiplies become shift / add chains; big loops spill registers.
-- **Tables that fit the 8 KB data cache:** MP4's colour conversion tables went from ~11 KB to ~3.5 KB,
-  two rows per chroma row, two pixels per 32-bit store (1.3); then in assembly with byte tables
-  indexed by Y + chroma: 42.3 to 12.7 instructions a pixel (1.7).
-- **`memcpy` / `memset` / `strlen` in assembly** (`lib/fastmem/`, from Browser 0.6): 4 KB memcpy 527
-  instructions against 20,484 for GCC's loop; a quadratic copy (an array copied on every start tag)
-  was 81 % of a page's work: look for those first.
-- **The timers:** `User::FastCounter` runs at 64 Hz on the 9300, the same as the tick: average over
-  many frames (MP4 1.2).
-- **Writing files:** in 32 KB pieces, not per 2 KB network record (Instagram 0.19: a flash write
-  each was the slowness).
-- **Start fast:** open `RSocketServ` sessions on the first request, not at start (the first may start
-  ESOCK); read settings files when first needed (Browser 0.26).
-
-**Drawing**
-- **Straight into the screen memory** (direct screen access; MP4 1.14-1.17): find the layout with a
-  self-test (draw 16 pixels with the screen's graphics context, look for them in the memory: the
-  offset and line length; write 8 and read them back), every run (a saved "passed" skipped it once:
-  NULL screen address, KERN-EXEC 3, 1.15). Start the picture at an even x (word-aligned lines, or
-  the slow path runs); the window's screen position is window coordinates + the window's position
-  (the normal window starts at x = 92). When the window server reports the area covered (a menu),
-  draw the old way. Saved ~7-9 ms a frame of the window server's copy.
-- **`BitBltMasked` copies the source where the mask is black** unless `aInvertMask` (Instagram 0.43,
-  Browser 0.24: icons and AIF masks the other way round showed white boxes).
-- **BITGDI 3 = no font selected:** a `DrawText` after another part of the code discarded the font
-  (Instagram 0.57). Also from a masked blit asking for more than the bitmap has (16x16 of a 16x15
-  picture, 0.41).
-- **Draw from a callback, not inside network callbacks:** the main thread has ~8 KB of stack; a page
-  drawn deep in the HTTP client's callbacks overflowed it (KERN-EXEC 3, Browser 0.15). Measure frames
-  from `sub sp` in the ARM objects; let `Render()` only ask, and draw from an idle callback.
-- **Don't give `.ico` files to the phone's ICO decoder:** PNG-in-ICO favicons crash it (KERN-EXEC 3,
-  Browser 0.17); decode them yourself.
-
-**Panics worth knowing**
-- **USER 23 / USER 11:** an 8-bit / 16-bit descriptor over its maximum length. A `TPtr8` taken before
-  its buffer was flushed keeps the old length (Browser 0.25, Instagram 0.60); a `TBuf<80>` status line
-  that got 84 characters (Instagram 0.58). Size buffers for the worst escaping (`&` to 5 bytes, UTF-8
-  up to 3).
-- **E32USER-CBase 40** in the Java comms when Java read Bluetooth while downloading (Net Helper 0.4):
-  do Bluetooth in a native thread.
-- **Killing a thread in the middle of socket / TLS calls** was followed by the phone restarting (Net
-  Helper 0.3): let it close its own connections and finish.
-
-**Memory**
-- `EPOCHEAPSIZE` in the `.mmp` (up to 32 MB used); size caches from the free RAM (`HAL`,
-  `UserHal::MemoryInfo`) and keep a reserve (2.5-3 MB); compress the heap after dropping things so the
-  phone gets the RAM back (Browser 0.12, Instagram 0.31).
-- A decoder with its own chunk heap (`User::SwitchHeap` around its calls; MP4 Player, up to 12 MB).
-- No writable static data: tables `static const` without pointers; lookup tables built at run time
-  in an object (MP4's VLC tables).
-- CPU load without the kernel's CPU times: a lowest-priority thread counts how far it gets in 0.1 s
-  once a second; less than its best = busy (Browser 0.13).
-
-**Network**
-- **Speeds measured:** USB IP passthrough: plain HTTP ~222 KB/s, TLS ~121 KB/s (Instagram 0.25; the
-  phone's RNDIS + TCP, not the cable); GnuBox measured ~107 kB/s through it. Bluetooth via GnuBox
-  ~20-30 kB/s (the 8 KB default TCP window per connection).
-- **Bluetooth:** error -6031 reaching another phone usually means a Bluetooth link to a PC (PC Suite)
-  is up and blocks it (Net Helper 0.5).
-- **Java on the 9300** can't keep connections open or open sockets to 80/443 unsigned, but may call
-  `http://127.0.0.1`: a native helper can do its network work (Net Helper).
-- **Installing:** `FR,RI` in the `.pkg` starts the app after installing; the installer's own prompts
-  stay (Series 80 has no silent install API; Instagram's auto-update).
-- The SDK's zlib (1.1.3) inflates gzip after skipping its header (raw inflate; Instagram 9300).
-
-## 10. Tips from the Wikibooks Series 80 page
-
-From [Symbian/S80](https://en.wikibooks.org/wiki/Symbian/S80) (Wikibooks, CC BY-SA); not yet checked here.
-
-- **Key scan codes** (`TKeyEvent.iScanCode`) on the 9300 / 9500:
-
-  | Key | Code | Key | Code |
-  |---|---|---|---|
-  | Joystick left / right / up / down / press | 170 / 171 / 172 / 173 / 174 | Arrows left / right / up / down | 14 / 15 / 16 / 17 |
-  | Menu | 148 | Chr | 24 |
-  | Ctrl | 22 | Left / right Shift | 18 / 19 |
-  | Esc | 4 | Enter | 3 |
-  | Backspace | 1 | Tab | 2 |
-  | Space | 5 | Caps Lock | 26 |
-  | Comma / dot | 121 / 122 | Minus / plus | 123 / 131 |
-  | Letters a-z | 65-90 | Digits 0-9 | 48-57 |
-
-  The joystick's own codes could replace the virtual mouse pointer that Maps 9300's 3D view reads it
-  through.
-- **Choosing the connection:** don't change `CCommsDbConnectionPrefTableView` from an app; pass a
-  `TCommDbConnPref` to `RConnection::Start`. (GnuBox writes the preferences on purpose: setting the
-  phone's default is its job.)
-- **An app that won't start:** check overrides of `CEikAppUi::ProcessCommandParametersL` (its return
-  value doesn't behave as on S60: `ETrue` differs) and of `ProcessMessageL`.
+The findings that aren't about building moved to their own repo,
+[symbian-s80v2-dev-tips-and-tricks](https://github.com/janseris/symbian-s80v2-dev-tips-and-tricks):
+the data cache, what made the 3D view faster, JPEG decoding (`performance.md`), the other apps' tips
+(`from-the-apps.md`), the Wikibooks tips (`wikibooks-tips.md`), networking and big uploads over GnuBox
+(`networking.md`), and the DSP (`dsp/`).

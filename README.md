@@ -12,6 +12,9 @@ of the TLS 1.2 patch (`ssladaptor.dll`).
 | `BUILD_SYMBIAN_TLS.md`, `out/`, `upstream/` | Building and installing `ssladaptor.dll` (the TLS 1.2 patch, from janseris/symbian-tls + bearssl-symbian), our builds `ssladaptor_v20-fixN*.dll`, the texts sent upstream |
 | `j2me/` | Archived: J2ME on the 9300 (installing a J2ME app, why signed MIDlets don't work) |
 
+Findings and development tips (the data cache, speed-ups, networking, the DSP, the other apps' tips)
+are in their own repo: [symbian-s80v2-dev-tips-and-tricks](https://github.com/janseris/symbian-s80v2-dev-tips-and-tricks).
+
 Clone it next to the other repos it works with (all in one folder):
 
 ```
