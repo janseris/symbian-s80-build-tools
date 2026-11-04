@@ -21,6 +21,7 @@ API and formats, the 3D tiles, places) stays in `maps9300/` (`docs/mapy-api.md`,
 | `../toolchain/setup_vm_noroot.sh`, `symenv.sh.example` | The same in a shell with no root and ~45 s a command (staged; section 8) |
 | `../toolchain/build_s80.sh` | Build any S80 app: `SYM=~/sym build_s80.sh <project> <name>` (group/ with bld.inf, sis/<name>.pkg.in) |
 | `emu/armemu.py`, `build_emu.sh`, `drv_template.cpp`, `example.py` | Run phone code (GCC 2.9 armi -O2) in the Unicorn ARM emulator: instruction counts per call and function, hot blocks, the 8 KB data-cache model, faults with their function (section 5) |
+| `emu/asmcmp.py`, `emu/examples/prep6/` | Two functions of one image (assembly and its C reference) on the same random inputs: results and written memory compared to the bit, instructions per call of each; a spec file gives the inputs. Example: Maps 9300's `r3_prep6` against `prep6` (`examples/prep6/build_prep6.sh path/to/maps9300`) |
 | Other emulator tests | `mp4player9300/tools/armemu/` (the video decoders: `run.py decode|profile|colour|h264`), `webbrowser9300/browser9300/test/armtest.sh` (the browser's `igarm.c`), `lib/fastmem/test/` |
 | `emu/examples/` | Maps 9300's drivers and scripts: renderer scenes asm vs C (`drv.cpp`, `emu75.py`), whole 3D frames from scene dumps (`drvvts.cpp`, `emuvts.py`), the JPEG decoder (`drvdec.cpp`, `emudec.py`, `emujpg.py`), profiles (`prof*.py`); PC tests (`chunkcmp.cpp`, `panocull.cpp`, `panoseam.cpp`, `jpegtest.cpp`, `mapypoitest.cpp`) |
 | `lib/fastmem/` | memcpy / memset / strlen / 16- and 32-bit fills in ARM assembly (32 bytes a step), the C reference, its own README and emulator test (`test/armtest.sh`); the other `lib/` files include `fastmem.h` (add `-I.../lib/fastmem`). Copies: `webbrowser9300/fastmem/` (the browser builds from it) |
@@ -194,6 +195,13 @@ Maps 9300 runs the phone's own machine code in the Unicorn ARM emulator (`pip in
    memory, call the entry points with r0–r3, and count instructions with a basic-block hook,
    per function (by the symbol table) and per block (the hot spots, then `objdump` them).
 5. Hash the output (a frame) of the old and new code: they must match to the bit.
+
+For assembly against its C reference, `emu/asmcmp.py` does steps 4–5 generically: a driver with both
+as `extern "C"` entry points, a spec file (`case(rnd, emu)` writes one random case and returns the
+arguments and the memory to compare), then `asmcmp.py emu.exe emu.sym spec.py 3000`. It prints the
+differing cases with their seed and the instructions per call of each. `examples/prep6/` is a complete
+one (Maps 9300's 3D setup for the DSP: `r3_prep6`, 267 instructions against the C's 647, 0 differences
+in 3000 triangles); run it with `examples/prep6/build_prep6.sh path/to/maps9300`.
 
 Ready-made: `maps9300/test/arm/build.sh` (renderer, panorama, random asm-vs-C tests) and
 `buildvts.sh` + `emuvts.py` (the 3D view's city tiles from a scene dumped by `test/vtstest.cpp`
